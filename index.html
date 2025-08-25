@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>LAS Point Cloud Viewer</title>
+    <style>
+        body {
+            margin: 0;
+            background: #f8f9fa;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            color: #333;
+        }
+        
+        .ui-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            padding: 16px;
+            width: 280px;
+            backdrop-filter: blur(5px);
+        }
+        
+        .header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        
+        .logo {
+            width: 32px;
+            height: 32px;
+            margin-right: 10px;
+            background: #0066ff;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+        
+        h1 {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
+        .upload-area {
+            border: 2px dashed #d1d1d1;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 16px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        
+        .upload-area:hover {
+            border-color: #0066ff;
+            background: rgba(0, 102, 255, 0.03);
+        }
+        
+        .upload-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+            color: #666;
+        }
+        
+        .upload-text {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        
+        .upload-button {
+            background: #0066ff;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        
+        .upload-button:hover {
+            background: #0052d4;
+        }
+        
+        #file-name {
+            font-size: 12px;
+            margin-top: 8px;
+            color: #666;
+            word-break: break-all;
+        }
+        
+        .stats {
+            background: #f1f3f5;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 16px;
+        }
+        
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            font-size: 13px;
+        }
+        
+        .stat-label {
+            color: #666;
+        }
+        
+        .stat-value {
+            font-weight: 500;
+        }
+        
+        #progress-container {
+            height: 4px;
+            background: #e9ecef;
+            border-radius: 2px;
+            margin: 12px 0;
+            overflow: hidden;
+        }
+        
+        #progress-bar {
+            height: 100%;
+            background: #0066ff;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        #progress-text {
+            font-size: 12px;
+            text-align: center;
+            color: #666;
+        }
+        
+        #error {
+            color: #e52525;
+            font-size: 13px;
+            margin-top: 12px;
+            padding: 8px;
+            background: rgba(229, 37, 37, 0.05);
+            border-radius: 6px;
+            display: none;
+        }
+        
+        .help-text {
+            font-size: 12px;
+            color: #888;
+            margin-top: 16px;
+            line-height: 1.4;
+        }
+        
+        canvas {
+            display: block;
+            background: #ffffff;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+    <div class="ui-container">
+        <div class="header">
+            <h1>LAS Point Cloud Viewer</h1>
+        </div>
+        
+        <div class="upload-area" id="drop-zone">
+            <div class="upload-icon">📁</div>
+            <div class="upload-text">Drag & drop LAS file or</div>
+            <label for="upload">
+                <div class="upload-button">Choose File</div>
+            </label>
+            <input type="file" id="upload" accept=".las" class="hidden">
+            <div id="file-name"></div>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-row">
+                <span class="stat-label">Points:</span>
+                <span class="stat-value" id="points-count">-</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Colors:</span>
+                <span class="stat-value" id="colors-status">-</span>
+            </div>
+        </div>
+        
+        <div id="progress-container">
+            <div id="progress-bar"></div>
+        </div>
+        <div id="progress-text"></div>
+        
+        <div id="error"></div>
+        
+        <div class="help-text">
+            Use mouse to rotate: Left button + drag<br>
+            Zoom: Scroll wheel or Right button + drag<br>
+            Pan: Middle button or Ctrl + Left button + drag
+        </div>
+    </div>
+
+    <script>
+        // UI Elements
+        const uploadInput = document.getElementById('upload');
+        const dropZone = document.getElementById('drop-zone');
+        const fileName = document.getElementById('file-name');
+        const pointsCount = document.getElementById('points-count');
+        const colorsStatus = document.getElementById('colors-status');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        const errorDiv = document.getElementById('error');
+        
+        // Initialize Three.js scene variables
+        let scene, camera, renderer, controls, pointCloud;
+        
+        // Base URL for mapping local paths to server paths
+        const BASE_URL = 'http://localhost/seg/'; // Adjust to your server's base URL
+
+        // Setup drag and drop
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = '#0066ff';
+            dropZone.style.background = 'rgba(0, 102, 255, 0.05)';
+        });
+        
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.style.borderColor = '#d1d1d1';
+            dropZone.style.background = 'transparent';
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = '#d1d1d1';
+            dropZone.style.background = 'transparent';
+            
+            if (e.dataTransfer.files.length) {
+                handleFile(e.dataTransfer.files[0]);
+            }
+        });
+        
+        uploadInput.addEventListener('change', (e) => {
+            if (e.target.files.length) {
+                handleFile(e.target.files[0]);
+            }
+        });
+        
+        function handleFile(file) {
+            // Reset UI
+            errorDiv.style.display = 'none';
+            errorDiv.textContent = '';
+            pointsCount.textContent = '-';
+            colorsStatus.textContent = '-';
+            progressBar.style.width = '0%';
+            progressText.textContent = '';
+            
+            // Check file type
+            if (!file.name.toLowerCase().endsWith('.las')) {
+                showError('Please select a LAS file');
+                return;
+            }
+            
+            // Show file name
+            fileName.textContent = file.name;
+            
+            // Read file
+            const reader = new FileReader();
+            reader.onload = async () => {
+                try {
+                    const { points, hasColor, numPoints } = await parseLAS(reader.result);
+                    pointsCount.textContent = numPoints.toLocaleString();
+                    colorsStatus.textContent = hasColor ? 'Yes' : 'No';
+                    plot3D(points, hasColor, numPoints);
+                } catch (err) {
+                    showError(`Error: ${err.message}`);
+                }
+            };
+            reader.onerror = () => {
+                showError("Error reading file");
+            };
+            reader.readAsArrayBuffer(file);
+        }
+        
+        function showError(message) {
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+        
+        function updateProgress(loaded, total) {
+            const percent = Math.round((loaded / total) * 100);
+            progressBar.style.width = `${percent}%`;
+            progressText.textContent = `Loading ${loaded.toLocaleString()} of ${total.toLocaleString()} points (${percent}%)`;
+        }
+        
+        // Check if path is a local file path
+        function isLocalPath(path) {
+            return /^[a-zA-Z]:\\|^\/|^\.\//.test(path) || !/^(http|https):\/\//.test(path);
+        }
+        
+        // Fetch LAS file from URL or mapped server path
+        async function fetchLAS(path) {
+            if (!path) {
+                showError('No LAS file path provided');
+                return;
+            }
+            
+            // Reset UI
+            errorDiv.style.display = 'none';
+            errorDiv.textContent = '';
+            pointsCount.textContent = '-';
+            colorsStatus.textContent = '-';
+            progressBar.style.width = '0%';
+            progressText.textContent = '';
+            
+            // Extract file name for display
+            fileName.textContent = path.split(/[\\/]/).pop() || path;
+            
+            // Map local paths to server URL
+            let fetchUrl = path;
+            if (isLocalPath(path)) {
+                // Remove drive letter and normalize path (e.g., 'D:/MMS/seg/...' -> 'seg/...')
+                const normalizedPath = path.replace(/^[a-zA-Z]:[\\/]MMS[\\/]/, '');
+                try {
+                    fetchUrl = new URL(normalizedPath, BASE_URL).href;
+                } catch (e) {
+                    showError(`Invalid path: ${path}. Please upload the LAS file.`);
+                    uploadInput.value = '';
+                    uploadInput.click();
+                    return;
+                }
+            }
+            
+            // Try fetching the LAS file
+            let response;
+            try {
+                progressText.textContent = `Fetching LAS file from ${fetchUrl}...`;
+                response = await fetch(fetchUrl);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const buffer = await response.arrayBuffer();
+                const { points, hasColor, numPoints } = await parseLAS(buffer);
+                pointsCount.textContent = numPoints.toLocaleString();
+                colorsStatus.textContent = hasColor ? 'Yes' : 'No';
+                plot3D(points, hasColor, numPoints);
+            } catch (e) {
+                showError(`Failed to load LAS file from ${fetchUrl}: ${e.message}. Try uploading the file manually.`);
+                uploadInput.value = '';
+                uploadInput.click();
+            }
+        }
+        
+        // Parse LAS file for XYZ and RGB data
+        async function parseLAS(buffer) {
+            const view = new DataView(buffer);
+
+            // Check file signature
+            if (String.fromCharCode(...new Uint8Array(buffer, 0, 4)) !== 'LASF') {
+                throw new Error("Invalid LAS file");
+            }
+
+            // Get version and header info
+            const versionMinor = view.getUint8(25);
+            const pointDataOffset = view.getUint32(96, true);
+            const pointDataFormat = view.getUint8(104);
+            const pointDataSize = view.getUint16(105, true);
+            let numPoints = view.getUint32(107, true);
+            if ((numPoints === 0 && versionMinor >= 4) || pointDataFormat > 5) {
+                numPoints = view.getUint32(247, true) + view.getUint32(251, true) * 4294967296;
+            }
+
+            // Scale and offset
+            const xScale = view.getFloat64(131, true);
+            const yScale = view.getFloat64(139, true);
+            const zScale = view.getFloat64(147, true);
+            const xOffset = view.getFloat64(155, true);
+            const yOffset = view.getFloat64(163, true);
+            const zOffset = view.getFloat64(171, true);
+
+            if (numPoints === 0) throw new Error("No points found");
+
+            // Validate file size
+            if (buffer.byteLength < pointDataOffset + numPoints * pointDataSize) {
+                throw new Error("Corrupted LAS file");
+            }
+
+            // Color offset configuration
+            const formatConfig = {
+                0: { size: 20, color: null },
+                1: { size: 28, color: null },
+                2: { size: 26, color: 20 },
+                3: { size: 34, color: 28 },
+                4: { size: 57, color: null },
+                5: { size: 63, color: 28 },
+                6: { size: 30, color: null },
+                7: { size: 36, color: 30 },
+                8: { size: 38, color: 30 },
+                9: { size: 59, color: null },
+                10: { size: 67, color: 30 }
+            };
+            const config = formatConfig[pointDataFormat];
+            if (!config || pointDataSize < config.size) {
+                throw new Error("Unsupported or invalid point format");
+            }
+
+            const hasColor = config.color !== null;
+            const points = [];
+
+            // Parse points
+            const batchSize = 100000;
+            for (let i = 0; i < numPoints; i += batchSize) {
+                const batchEnd = Math.min(i + batchSize, numPoints);
+                for (let j = i; j < batchEnd; j++) {
+                    const pOffset = pointDataOffset + j * pointDataSize;
+                    const X = view.getInt32(pOffset, true) * xScale + xOffset;
+                    const Y = view.getInt32(pOffset + 4, true) * yScale + yOffset;
+                    const Z = view.getInt32(pOffset + 8, true) * zScale + zOffset;
+
+                    if (hasColor) {
+                        const R = view.getUint16(pOffset + config.color, true) / 65535;
+                        const G = view.getUint16(pOffset + config.color + 2, true) / 65535;
+                        const B = view.getUint16(pOffset + config.color + 4, true) / 65535;
+                        points.push([X, Y, Z, R, G, B]);
+                    } else {
+                        points.push([X, Y, Z]);
+                    }
+                }
+                updateProgress(batchEnd, numPoints);
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+
+            console.log(`Read ${numPoints} points`);
+            return { points, hasColor, numPoints };
+        }
+
+        function plot3D(points, hasColor, numPoints) {
+            // Clear previous scene if it exists
+            if (renderer) {
+                document.body.removeChild(renderer.domElement);
+                if (controls) controls.dispose();
+            }
+            
+            // Create new scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xffffff); // White background
+            
+            const aspect = window.innerWidth / window.innerHeight;
+            camera = new THREE.OrthographicCamera(-aspect, aspect, 1, -1, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            // Center and scale points
+            let minX = Infinity, minY = Infinity, minZ = Infinity;
+            let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+            points.forEach(p => {
+                minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]);
+                minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]);
+                minZ = Math.min(minZ, p[2]); maxZ = Math.max(maxZ, p[2]);
+            });
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+            const centerZ = (minZ + maxZ) / 2;
+            const scale = Math.max(maxX - minX, maxY - minY, maxZ - minZ) / 2 || 1;
+
+            // Create geometry
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(points.length * 3);
+            points.forEach((p, i) => {
+                positions[i * 3] = (p[0] - centerX) / scale;
+                positions[i * 3 + 1] = (p[1] - centerY) / scale;
+                positions[i * 3 + 2] = (p[2] - centerZ) / scale;
+            });
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+            // Set material with RGB if available
+            let material;
+            if (hasColor) {
+                const colors = new Float32Array(points.length * 3);
+                points.forEach((p, i) => {
+                    colors[i * 3] = p[3];
+                    colors[i * 3 + 1] = p[4];
+                    colors[i * 3 + 2] = p[5];
+                });
+                geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+                material = new THREE.PointsMaterial({ 
+                    vertexColors: true, 
+                    size: 0.005, 
+                    sizeAttenuation: false 
+                });
+            } else {
+                material = new THREE.PointsMaterial({ 
+                    color: 0x0066ff, 
+                    size: 0.005, 
+                    sizeAttenuation: false 
+                });
+            }
+
+            pointCloud = new THREE.Points(geometry, material);
+            scene.add(pointCloud);
+
+            // Set default X-axis view
+            camera.position.set(scale * 2, 0, 0);  // Along +X
+            camera.up.set(0, 0, 1);                // Z is up
+            camera.lookAt(0, 0, 0);                // Look toward cloud center
+
+            // Smooth orbit controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.minDistance = 0.1;
+            controls.maxDistance = scale * 3;
+
+            // Animation loop
+            function animate() {
+                requestAnimationFrame(animate);
+                controls.update();
+                renderer.render(scene, camera);
+            }
+            animate();
+
+            // Resize handler
+            window.addEventListener('resize', () => {
+                const aspect = window.innerWidth / window.innerHeight;
+                camera.left = -aspect;
+                camera.right = aspect;
+                camera.top = 1;
+                camera.bottom = -1;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+            
+            // Hide progress when done
+            progressBar.style.width = '100%';
+            setTimeout(() => {
+                progressText.textContent = 'Loading complete';
+            }, 500);
+        }
+
+        // Check for URL parameter and fetch LAS file on page load
+        window.addEventListener('load', () => {
+            const params = new URLSearchParams(window.location.search);
+            const lasPath = params.get('path');
+            if (lasPath) {
+                fetchLAS(lasPath);
+            }
+        });
+    </script>
+</body>
+</html>
